@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local mouse = player:GetMouse()
 local PlayerGui = player:WaitForChild("PlayerGui")
@@ -7,6 +8,7 @@ local PlayerGui = player:WaitForChild("PlayerGui")
 local parts = {}
 local selectedPart = nil
 local moveArrows = {}
+local rotateArrows = {}
 local clickCount = {}
 local deleteButton
 
@@ -17,7 +19,7 @@ screenGui.ResetOnSpawn = false
 screenGui.Parent = PlayerGui
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0,350,0,260)
+frame.Size = UDim2.new(0,350,0,280)
 frame.Position = UDim2.new(0.3,0,0.3,0)
 frame.BackgroundColor3 = Color3.fromRGB(40,40,40)
 frame.Active = true
@@ -28,7 +30,7 @@ local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1,0,0,40)
 title.Position = UDim2.new(0,0,0,0)
 title.BackgroundColor3 = Color3.fromRGB(0,170,255)
-title.Text = "Part Creator Avançado"
+title.Text = "Part Creator Studio"
 title.TextColor3 = Color3.fromRGB(255,255,255)
 title.Font = Enum.Font.SourceSansBold
 title.TextSize = 22
@@ -94,6 +96,35 @@ deleteAllBtn.Font = Enum.Font.SourceSansBold
 deleteAllBtn.TextSize = 16
 deleteAllBtn.Parent = frame
 
+-- Função de dano
+local function setDano(part, ativo)
+	if not part then return end
+	part:SetAttribute("Dano", ativo)
+end
+
+-- Mostrar contagem de cliques temporária
+local function showClickCount(part, count)
+	local existing = part:FindFirstChild("ClickCount")
+	if existing then existing:Destroy() end
+	local bill = Instance.new("BillboardGui")
+	bill.Size = UDim2.new(0,50,0,25)
+	bill.StudsOffset = Vector3.new(0,part.Size.Y + 2,0)
+	bill.Adornee = part
+	bill.Parent = part
+	local txt = Instance.new("TextLabel")
+	txt.Size = UDim2.new(1,0,1,0)
+	txt.BackgroundTransparency = 1
+	txt.TextColor3 = Color3.new(1,1,0)
+	txt.TextScaled = true
+	txt.Font = Enum.Font.SourceSansBold
+	txt.Text = tostring(count)
+	txt.Parent = bill
+	txt.Name = "ClickLabel"
+	task.delay(2,function()
+		if bill then bill:Destroy() end
+	end)
+end
+
 -- Criar part
 local function createPart(car)
 	local sizeVals = string.split(sizeBox.Text,",")
@@ -107,16 +138,25 @@ local function createPart(car)
 	part.Anchored = anchor
 	part.Position = player.Character and (player.Character.PrimaryPart.Position+Vector3.new(0,5,0)) or Vector3.new(0,5,0)
 	part.Parent = workspace
+	part:SetAttribute("Dano", false)
 	parts[#parts+1] = part
 	clickCount[part] = 0
 
-	-- Se for carro, adiciona Motor6D ou Placeholder para futura movimentação
+	-- Dano
+	part.Touched:Connect(function(hit)
+		local humanoid = hit.Parent:FindFirstChild("Humanoid")
+		if humanoid and part:GetAttribute("Dano") then
+			humanoid:TakeDamage(10)
+		end
+	end)
+
+	-- Carro
 	if car then
 		local seat = Instance.new("VehicleSeat")
 		seat.Size = Vector3.new(2,1,2)
 		seat.Position = part.Position + Vector3.new(0,2,0)
 		seat.Anchored = false
-		seat.Parent = workspace
+		seat.Parent = part
 		parts[#parts+1] = seat
 	end
 end
@@ -124,93 +164,20 @@ end
 createBtn.MouseButton1Click:Connect(function() createPart(false) end)
 createCarBtn.MouseButton1Click:Connect(function() createPart(true) end)
 deleteAllBtn.MouseButton1Click:Connect(function()
-	for _,p in pairs(parts) do
-		if p and p.Parent then p:Destroy() end
-	end
+	for _,p in pairs(parts) do if p and p.Parent then p:Destroy() end end
 	parts = {}
 	selectedPart = nil
 	moveArrows = {}
+	rotateArrows = {}
 	clickCount = {}
 	if modifyGUI then modifyGUI.Visible = false end
 	if deleteButton then deleteButton.Visible = false end
 end)
 
--- Aura
-local function applyAura(part)
-	if not part:FindFirstChild("SelectionBox") then
-		local sel = Instance.new("SelectionBox")
-		sel.Adornee = part
-		sel.LineThickness = 0.05
-		sel.Color3 = Color3.fromRGB(0,255,0)
-		sel.SurfaceTransparency = 0.5
-		sel.Parent = part
-	end
-end
-
-local function removeAura(part)
-	local sel = part:FindFirstChild("SelectionBox")
-	if sel then sel:Destroy() end
-end
-
--- Setas
-local function createArrows(part)
-	for _,arrow in pairs(moveArrows) do arrow:Destroy() end
-	moveArrows = {}
-
-	local size = part.Size
-	local directions = {
-		{Vector3.new(size.X/2 + 1,0,0),"Direita"},
-		{Vector3.new(-size.X/2 -1,0,0),"Esquerda"},
-		{Vector3.new(0,0,size.Z/2 +1),"Frente"},
-		{Vector3.new(0,0,-size.Z/2 -1),"Trás"},
-		{Vector3.new(0,size.Y/2 +1,0),"Cima"},
-		{Vector3.new(0,-size.Y/2 -1,0),"Baixo"},
-	}
-
-	for _,dir in pairs(directions) do
-		local arrow = Instance.new("Part")
-		arrow.Size = Vector3.new(1,1,1)
-		arrow.Anchored = true
-		arrow.CanCollide = false
-		arrow.Color = Color3.fromRGB(255,255,0)
-		arrow.Position = part.Position + dir[1]
-		arrow.Name = dir[2]
-		arrow.Parent = workspace
-
-		local click = Instance.new("ClickDetector",arrow)
-		click.MaxActivationDistance = 50
-		click.MouseClick:Connect(function()
-			part.Position = part.Position + dir[1].Unit
-		end)
-
-		moveArrows[#moveArrows+1] = arrow
-	end
-end
-
--- Atualiza setas
-spawn(function()
-	while true do
-		wait(1)
-		if selectedPart then
-			for i,arrow in pairs(moveArrows) do
-				local dir
-				if arrow.Name=="Direita" then dir = Vector3.new(selectedPart.Size.X/2 +1,0,0)
-				elseif arrow.Name=="Esquerda" then dir = Vector3.new(-selectedPart.Size.X/2 -1,0,0)
-				elseif arrow.Name=="Frente" then dir = Vector3.new(0,0,selectedPart.Size.Z/2 +1)
-				elseif arrow.Name=="Trás" then dir = Vector3.new(0,0,-selectedPart.Size.Z/2 -1)
-				elseif arrow.Name=="Cima" then dir = Vector3.new(0,selectedPart.Size.Y/2 +1,0)
-				elseif arrow.Name=="Baixo" then dir = Vector3.new(0,-selectedPart.Size.Y/2 -1,0)
-				end
-				if dir then arrow.Position = selectedPart.Position + dir end
-			end
-		end
-	end
-end)
-
 -- GUI de modificação
 modifyGUI = Instance.new("Frame")
 modifyGUI.Size = UDim2.new(0,250,0,200)
-modifyGUI.Position = UDim2.new(0.5,-125,0.3,0)
+modifyGUI.Position = UDim2.new(0.5,-125,0,0)
 modifyGUI.BackgroundColor3 = Color3.fromRGB(60,60,60)
 modifyGUI.Visible = false
 modifyGUI.Parent = screenGui
@@ -253,17 +220,20 @@ end
 addButton("Bloco",40,function() if selectedPart then selectedPart.Shape = Enum.PartType.Block end end)
 addButton("Bola",70,function() if selectedPart then selectedPart.Shape = Enum.PartType.Ball end end)
 addButton("Cilindro",100,function() if selectedPart then selectedPart.Shape = Enum.PartType.Cylinder end end)
-addButton("Deletar",130,function() 
+addButton("Dano ON/OFF",130,function() if selectedPart then setDano(selectedPart, not selectedPart:GetAttribute("Dano")) end end)
+addButton("Deletar",160,function() 
 	if selectedPart then
 		selectedPart:Destroy()
 		modifyGUI.Visible = false
 		selectedPart = nil
 		for _,arrow in pairs(moveArrows) do arrow:Destroy() end
+		for _,arrow in pairs(rotateArrows) do arrow:Destroy() end
 		moveArrows = {}
+		rotateArrows = {}
 	end
 end)
 
--- Botão flutuante distante
+-- Botão flutuante estilo Studio
 deleteButton = Instance.new("TextButton")
 deleteButton.Size = UDim2.new(0,80,0,30)
 deleteButton.BackgroundColor3 = Color3.fromRGB(255,0,0)
@@ -278,30 +248,108 @@ deleteButton.MouseButton1Click:Connect(function()
 		modifyGUI.Visible = false
 		selectedPart = nil
 		for _,arrow in pairs(moveArrows) do arrow:Destroy() end
+		for _,arrow in pairs(rotateArrows) do arrow:Destroy() end
 		moveArrows = {}
+		rotateArrows = {}
 	end
 end)
 
--- Atualiza posição do botão flutuante mais distante
+-- Funções de setas de movimento
+local function createMoveArrows(part)
+	for _,a in pairs(moveArrows) do a:Destroy() end
+	moveArrows = {}
+	local dirs = {
+		{Vector3.new(1,0,0),"Direita",Color3.fromRGB(255,0,0)},
+		{Vector3.new(-1,0,0),"Esquerda",Color3.fromRGB(255,128,128)},
+		{Vector3.new(0,0,1),"Frente",Color3.fromRGB(0,255,0)},
+		{Vector3.new(0,0,-1),"Tras",Color3.fromRGB(128,255,128)},
+		{Vector3.new(0,1,0),"Cima",Color3.fromRGB(0,0,255)},
+		{Vector3.new(0,-1,0),"Baixo",Color3.fromRGB(128,128,255)},
+	}
+	for _,d in pairs(dirs) do
+		local arrow = Instance.new("Part")
+		arrow.Size = Vector3.new(0.5,0.5,0.5)
+		arrow.Anchored = true
+		arrow.CanCollide = false
+		arrow.Color = d[3]
+		arrow.Position = part.Position + d[1]*3
+		arrow.Name = d[2]
+		arrow.Parent = workspace
+
+		local click = Instance.new("ClickDetector",arrow)
+		click.MaxActivationDistance = 50
+		click.MouseClick:Connect(function()
+			local goal = {Position = part.Position + d[1]}
+			TweenService:Create(part,TweenInfo.new(0.3),goal):Play()
+		end)
+		moveArrows[#moveArrows+1] = arrow
+	end
+end
+
+-- Funções de setas de rotação
+local function createRotateArrows(part)
+	for _,a in pairs(rotateArrows) do a:Destroy() end
+	rotateArrows = {}
+	local axes = {"X","Y","Z"}
+	local colors = {Color3.fromRGB(255,255,0), Color3.fromRGB(0,255,255), Color3.fromRGB(255,0,255)}
+	for i,ax in pairs(axes) do
+		local arrow = Instance.new("Part")
+		arrow.Size = Vector3.new(0.5,0.5,0.5)
+		arrow.Anchored = true
+		arrow.CanCollide = false
+		arrow.Color = colors[i]
+		arrow.Position = part.Position + Vector3.new(0, part.Size.Y/2 + i, 0)
+		arrow.Name = "Rot"..ax
+
+		-- Nome da seta
+		local bill = Instance.new("BillboardGui",arrow)
+		bill.Size = UDim2.new(0,50,0,25)
+		bill.Adornee = arrow
+		bill.AlwaysOnTop = true
+		local txt = Instance.new("TextLabel",bill)
+		txt.Size = UDim2.new(1,0,1,0)
+		txt.BackgroundTransparency = 1
+		txt.TextColor3 = Color3.new(1,1,1)
+		txt.Text = ax
+		txt.TextScaled = true
+
+		arrow.Parent = workspace
+		local click = Instance.new("ClickDetector",arrow)
+		click.MaxActivationDistance = 50
+		click.MouseClick:Connect(function()
+			local rot = part.Orientation
+			if ax=="X" then rot = rot + Vector3.new(15,0,0)
+			elseif ax=="Y" then rot = rot + Vector3.new(0,15,0)
+			elseif ax=="Z" then rot = rot + Vector3.new(0,0,15) end
+			TweenService:Create(part,TweenInfo.new(0.3),{Orientation = rot}):Play()
+		end)
+		rotateArrows[#rotateArrows+1] = arrow
+	end
+end
+
+-- Atualizar posição das setas toda frame
 RunService.RenderStepped:Connect(function()
 	if selectedPart and selectedPart.Parent then
-		local screenPos, onScreen = workspace.CurrentCamera:WorldToViewportPoint(selectedPart.Position + Vector3.new(0, selectedPart.Size.Y + 3,0))
-		if onScreen then
-			deleteButton.Position = UDim2.new(0, screenPos.X, 0, screenPos.Y)
-			deleteButton.Visible = true
-		else
-			deleteButton.Visible = false
+		-- Move Arrows
+		local dirs = {
+			Vector3.new(1,0,0),
+			Vector3.new(-1,0,0),
+			Vector3.new(0,0,1),
+			Vector3.new(0,0,-1),
+			Vector3.new(0,1,0),
+			Vector3.new(0,-1,0),
+		}
+		for i,arrow in pairs(moveArrows) do
+			if selectedPart and arrow then
+				arrow.Position = selectedPart.Position + dirs[i]*3
+			end
 		end
-	else
-		deleteButton.Visible = false
-	end
-end)
-
--- Mouse
-RunService.RenderStepped:Connect(function()
-	local target = mouse.Target
-	for _,p in pairs(parts) do
-		if p == target then applyAura(p) else removeAura(p) end
+		-- Rotate Arrows
+		for i,arrow in pairs(rotateArrows) do
+			if selectedPart and arrow then
+				arrow.Position = selectedPart.Position + Vector3.new(0, selectedPart.Size.Y/2 + i, 0)
+			end
+		end
 	end
 end)
 
@@ -313,19 +361,14 @@ mouse.Button1Down:Connect(function()
 		if p == target then
 			selectedPart = p
 			clickCount[p] = (clickCount[p] or 0) +1
-
-			if clickCount[p] == 1 then
-				applyAura(p)
-			elseif clickCount[p] == 2 then
-				if #moveArrows == 0 then
-					createArrows(p)
-				else
-					for _,arrow in pairs(moveArrows) do arrow:Destroy() end
-					moveArrows = {}
-				end
-			elseif clickCount[p] >= 3 then
+			showClickCount(p, clickCount[p])
+			createMoveArrows(p)
+			createRotateArrows(p)
+			deleteButton.Position = UDim2.new(0, mouse.X + 20, 0, mouse.Y + 20)
+			deleteButton.Visible = true
+			if clickCount[p]>=3 then
 				modifyGUI.Visible = true
-				clickCount[p] = 0
+				clickCount[p]=0
 			end
 			break
 		end
